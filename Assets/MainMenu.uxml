@@ -1,0 +1,8 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+    <Style src="project://database/Assets/MainMenu.uss?fileID=7433441132597879392&amp;guid=ea8b7dc738e320848aecc3119b0deff5&amp;type=3#MainMenu" />
+    <ui:VisualElement name="menu" style="flex-grow: 1; align-items: center; justify-content: center; align-self: auto; align-content: center; background-color: rgb(148, 255, 158); -unity-background-image-tint-color: rgb(198, 255, 0); background-position-x: center 0; background-image: url(&quot;project://database/Assets/Scenes/ASM/Tilesets/9c76a14839f16cff3e9906c61c648d04.jpg?fileID=2800000&amp;guid=8ecbbea2bf06ac149a08a15bdf0421e7&amp;type=3#9c76a14839f16cff3e9906c61c648d04&quot;);">
+        <ui:Button text="Play" name="Play" style="color: rgb(255, 12, 0);" />
+        <ui:Button text="Options" name="Options" style="color: rgb(255, 9, 0);" />
+        <ui:Button text="Quit" name="Quit" style="color: rgb(255, 0, 0);" />
+    </ui:VisualElement>
+</ui:UXML>
