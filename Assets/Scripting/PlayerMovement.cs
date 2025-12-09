@@ -82,4 +82,16 @@ public class PlayerMovement : MonoBehaviour
         verticalVelocity.y += gravity * Time.deltaTime;
         controller.Move(verticalVelocity * Time.deltaTime);
     }
+    //void FixUpdate()
+    //{
+    //    bool isMoving = moveInput.magnitude > 0.1f;
+    //    if (isMoving && !audioSource.isPlaying)
+    //    {
+    //        audioSource.Play();
+    //    }
+    //    else if (!isMoving && audioSource.isPlaying)
+    //    {
+    //        audioSource.Stop();
+    //    }
+    //}
 }
