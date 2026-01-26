@@ -1,11 +1,15 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class MazeGenerator : MonoBehaviour
 {
+    public enum Difficulty { Easy, Normal, Hard }
+
     [Header("Maze Size")]
     [SerializeField] private int width = 15;
     [SerializeField] private int height = 15;
+    [SerializeField] private Difficulty difficulty = Difficulty.Normal;
 
     [Header("Prefabs")]
     [SerializeField] private GameObject wallPrefab;   // thin cube
@@ -21,9 +25,17 @@ public class MazeGenerator : MonoBehaviour
 
     [Header("Generation")]
     [SerializeField] private int seed = 0; // 0 = random
-    [SerializeField] private bool regenerateOnPlay = true;
+    [SerializeField] private bool regenerateOnPlay = false; // false = chờ menu chọn độ khó
+
+    [Header("Gameplay / UI")]
+    [SerializeField] private bool showInstructionsBeforePlay = false; // false vì đã có DifficultyMenu
+    [SerializeField, TextArea(3, 6)] private string instructionsText = "Find the exit. Use WASD or arrow keys to move. The limit for the number of jumps is 5.\nPress Start to begin.";
+    [SerializeField] private Vector2 instructionsSize = new Vector2(600, 260);
+    [SerializeField] private Font instructionsFont; // assign a font in Inspector; fallback to LegacyRuntime.ttf if null
 
     private Cell[,] grid;
+    private GameObject instructionsCanvas;
+    private Vector2Int startCell = new Vector2Int(0, 0);
 
     private class Cell
     {
@@ -42,6 +54,9 @@ public class MazeGenerator : MonoBehaviour
     {
         ClearChildren();
 
+        // Adjust size for difficulty
+        ApplyDifficultySize();
+
         width = Mathf.Max(2, width);
         height = Mathf.Max(2, height);
 
@@ -56,7 +71,57 @@ public class MazeGenerator : MonoBehaviour
         CarveMaze(0, 0);
         BuildFloor();
         BuildWalls();
-        CreateEntranceAndExitAndPlayer();
+
+        // Place entrances/exits now. Player spawn may wait until user presses Start.
+        CreateEntranceAndExit();
+
+        if (showInstructionsBeforePlay)
+            ShowInstructions();
+        else
+            SpawnPlayerAtStart();
+    }
+
+    /// <summary>
+    /// Set độ khó và kích thước maze từ bên ngoài
+    /// </summary>
+    public void SetDifficulty(Difficulty diff)
+    {
+        difficulty = diff;
+        switch (diff)
+        {
+            case Difficulty.Easy:
+                width = 8;
+                height = 8;
+                break;
+            case Difficulty.Normal:
+                width = 15;
+                height = 15;
+                break;
+            case Difficulty.Hard:
+                width = 25;
+                height = 25;
+                break;
+        }
+        Debug.Log("MazeGenerator: Đã set độ khó = " + diff + ", size = " + width + "x" + height);
+    }
+
+    private void ApplyDifficultySize()
+    {
+        switch (difficulty)
+        {
+            case Difficulty.Easy:
+                width = Mathf.Max(8, width);
+                height = Mathf.Max(8, height);
+                break;
+            case Difficulty.Normal:
+                // keep user provided sizes
+                break;
+            case Difficulty.Hard:
+                // ensure a larger grid by default
+                width = Mathf.Max(25, width);
+                height = Mathf.Max(25, height);
+                break;
+        }
     }
 
     private void CarveMaze(int startX, int startY)
@@ -183,37 +248,129 @@ public class MazeGenerator : MonoBehaviour
         return new Vector3(x * cellSize, 0, y * cellSize);
     }
 
-    private void CreateEntranceAndExitAndPlayer()
+    private void CreateEntranceAndExit()
     {
-        // Open entrance at (0,0) WEST
-        Vector2Int startCell = new Vector2Int(0, 0);
+        // Open entrance at startCell WEST
         OpenEntrance(startCell, 3);
 
-        // Open exit at (width-1,height-1) EAST
-        Vector2Int exitCell = new Vector2Int(width - 1, height - 1);
+        // For harder difficulty place exit at farthest reachable cell from start,
+        // otherwise use opposite corner.
+        Vector2Int exitCell;
+        if (difficulty == Difficulty.Hard)
+            exitCell = FindFarthestCell(startCell);
+        else
+            exitCell = new Vector2Int(width - 1, height - 1);
+
         OpenEntrance(exitCell, 1);
 
-        // Place Exit
+        // Place Exit (parented to maze is OK)
         if (exitPrefab != null)
         {
-            var exit = Instantiate(exitPrefab, transform);
+            Vector3 exitLocal = CellToWorld(exitCell.x, exitCell.y) + new Vector3(0, 0.01f, 0);
+            Vector3 exitWorld = transform.TransformPoint(exitLocal);
+            var exit = Instantiate(exitPrefab, exitWorld, Quaternion.identity, transform);
             exit.name = "Exit";
-            exit.transform.localPosition = CellToWorld(exitCell.x, exitCell.y) + new Vector3(0, 0.01f, 0);
-        }
-
-        // Spawn Player at start
-        if (playerPrefab != null)
-        {
-            Vector3 spawnPos = CellToWorld(startCell.x, startCell.y) + new Vector3(0, 0.25f, 0);
-            var player = Instantiate(playerPrefab, transform);
-            player.name = "Player";
-            player.transform.localPosition = spawnPos;
-
-            // Optional: face toward +X (into maze)
-            player.transform.localRotation = Quaternion.Euler(0, 0, 0);
         }
     }
 
+    private Vector2Int FindFarthestCell(Vector2Int from)
+    {
+        int[,] dist = new int[width, height];
+        for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
+                dist[x, y] = -1;
+
+        Queue<Vector2Int> q = new Queue<Vector2Int>();
+        q.Enqueue(from);
+        dist[from.x, from.y] = 0;
+
+        Vector2Int best = from;
+        int bestDist = 0;
+
+        while (q.Count > 0)
+        {
+            var c = q.Dequeue();
+            int d = dist[c.x, c.y];
+            if (d > bestDist)
+            {
+                bestDist = d;
+                best = c;
+            }
+
+            // check neighbors through open walls
+            var neighbors = new (Vector2Int delta, int wallIdx)[]
+            {
+                (new Vector2Int(0, 1), 0),  // N
+                (new Vector2Int(1, 0), 1),  // E
+                (new Vector2Int(0, -1), 2), // S
+                (new Vector2Int(-1, 0), 3), // W
+            };
+
+            foreach (var n in neighbors)
+            {
+                int nx = c.x + n.delta.x;
+                int ny = c.y + n.delta.y;
+                if (nx >= 0 && ny >= 0 && nx < width && ny < height)
+                {
+                    // move only if there's no wall between them
+                    if (!grid[c.x, c.y].walls[n.wallIdx] && dist[nx, ny] == -1)
+                    {
+                        dist[nx, ny] = d + 1;
+                        q.Enqueue(new Vector2Int(nx, ny));
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private void SpawnPlayerAtStart()
+    {
+        if (playerPrefab == null) return;
+
+        // Xóa Player cũ nếu có
+        GameObject existingPlayer = GameObject.Find("Player");
+        if (existingPlayer != null)
+        {
+            Debug.Log("MazeGenerator: Xóa Player cũ trước khi spawn mới");
+            DestroyImmediate(existingPlayer);
+        }
+        
+        // Tìm và xóa Player trong DontDestroyOnLoad nếu có
+        PlayerMovement[] allPlayers = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+        foreach (var p in allPlayers)
+        {
+            Debug.Log("MazeGenerator: Xóa Player cũ: " + p.gameObject.name);
+            DestroyImmediate(p.gameObject);
+        }
+
+        Vector3 spawnLocal = CellToWorld(startCell.x, startCell.y) + new Vector3(0, 0.25f, 0);
+        Vector3 spawnWorld = transform.TransformPoint(spawnLocal);
+
+        Debug.Log($"MazeGenerator: spawnLocal={spawnLocal} spawnWorld={spawnWorld}");
+
+        var player = Instantiate(playerPrefab, spawnWorld, Quaternion.Euler(0, 0, 0));
+        player.name = "Player";
+
+        // If there is a CharacterController, disable it while we set position to avoid collisions moving it.
+        var cc = player.GetComponent<CharacterController>();
+        if (cc != null)
+        {
+            cc.enabled = false;
+            player.position = spawnWorld;
+            cc.enabled = true;
+        }
+        else
+        {
+            player.position = spawnWorld;
+        }
+
+        // Optional: face toward +X (into maze)
+        player.rotation = Quaternion.Euler(0, 0, 0);
+    }
+
+    // Opens (removes) any wall objects overlapping the entrance area at the cell's side
     private void OpenEntrance(Vector2Int cell, int side)
     {
         Vector3 center = CellToWorld(cell.x, cell.y);
@@ -237,6 +394,89 @@ public class MazeGenerator : MonoBehaviour
             if (h && h.gameObject.name.Contains("Wall"))
                 DestroyImmediate(h.gameObject);
         }
+    }
+
+    private void ShowInstructions()
+    {
+        // If a canvas already exists, don't duplicate
+        if (instructionsCanvas != null) return;
+
+        // Ensure EventSystem exists
+        if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
+        {
+            new GameObject("EventSystem", typeof(UnityEngine.EventSystems.EventSystem), typeof(UnityEngine.EventSystems.StandaloneInputModule));
+        }
+
+        // Create Canvas
+        instructionsCanvas = new GameObject("MazeInstructionsCanvas");
+        var canvas = instructionsCanvas.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        instructionsCanvas.AddComponent<CanvasScaler>();
+        instructionsCanvas.AddComponent<GraphicRaycaster>();
+
+        // Panel
+        var panelGO = new GameObject("Panel");
+        panelGO.transform.SetParent(instructionsCanvas.transform, false);
+        var image = panelGO.AddComponent<Image>();
+        image.color = new Color(0f, 0f, 0f, 0.7f);
+        var rt = panelGO.GetComponent<RectTransform>();
+        rt.sizeDelta = instructionsSize;
+        rt.anchoredPosition = Vector2.zero;
+
+        // Choose font: inspector assigned font has priority, otherwise fallback to LegacyRuntime.ttf
+        Font fontToUse = instructionsFont != null ? instructionsFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        // Text
+        var textGO = new GameObject("Text");
+        textGO.transform.SetParent(panelGO.transform, false);
+        var txt = textGO.AddComponent<Text>();
+        txt.text = instructionsText;
+        txt.alignment = TextAnchor.MiddleCenter;
+        txt.color = Color.white;
+        txt.font = fontToUse;
+        txt.fontSize = 20;
+        var trt = textGO.GetComponent<RectTransform>();
+        trt.anchorMin = new Vector2(0.05f, 0.25f);
+        trt.anchorMax = new Vector2(0.95f, 0.85f);
+        trt.offsetMin = Vector2.zero;
+        trt.offsetMax = Vector2.zero;
+
+        // Start Button
+        var buttonGO = new GameObject("StartButton");
+        buttonGO.transform.SetParent(panelGO.transform, false);
+        var btn = buttonGO.AddComponent<Button>();
+        var btnImage = buttonGO.AddComponent<Image>();
+        btnImage.color = new Color(0.2f, 0.6f, 1f, 1f);
+        var brt = buttonGO.GetComponent<RectTransform>();
+        brt.anchorMin = new Vector2(0.35f, 0.05f);
+        brt.anchorMax = new Vector2(0.65f, 0.2f);
+        brt.offsetMin = Vector2.zero;
+        brt.offsetMax = Vector2.zero;
+
+        var btnTextGO = new GameObject("ButtonText");
+        btnTextGO.transform.SetParent(buttonGO.transform, false);
+        var btnText = btnTextGO.AddComponent<Text>();
+        btnText.text = "Start";
+        btnText.alignment = TextAnchor.MiddleCenter;
+        btnText.color = Color.white;
+        btnText.font = fontToUse;
+        btnText.fontSize = 22;
+        var btrt = btnTextGO.GetComponent<RectTransform>();
+        btrt.anchorMin = Vector2.zero;
+        btrt.anchorMax = Vector2.one;
+        btrt.offsetMin = Vector2.zero;
+        btrt.offsetMax = Vector2.zero;
+
+        btn.onClick.AddListener(OnStartButtonClicked);
+    }
+
+    private void OnStartButtonClicked()
+    {
+        // Destroy UI
+        if (instructionsCanvas != null)
+            Destroy(instructionsCanvas);
+
+        SpawnPlayerAtStart();
     }
 
     private void ClearChildren()

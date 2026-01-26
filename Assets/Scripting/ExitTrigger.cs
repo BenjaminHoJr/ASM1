@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 
 [RequireComponent(typeof(Collider))]
 public class ExitTrigger : MonoBehaviour
@@ -61,13 +63,29 @@ public class ExitTrigger : MonoBehaviour
         // Pause game
         Time.timeScale = 0f;
 
+        // Ensure an EventSystem exists so UI can receive input
+        if (FindExisting<EventSystem>() == null)
+        {
+            var es = new GameObject("EventSystem");
+            es.AddComponent<EventSystem>();
+            es.AddComponent<StandaloneInputModule>();
+            DontDestroyOnLoad(es);
+        }
+
         // Create lightweight UI overlay
         var canvasGO = new GameObject("WinCanvas");
+        DontDestroyOnLoad(canvasGO);
         var canvas = canvasGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvasGO.AddComponent<CanvasScaler>();
+        canvas.sortingOrder = 1000;
+
+        var scaler = canvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
         canvasGO.AddComponent<GraphicRaycaster>();
 
+        // Background panel
         var panelGO = new GameObject("Panel");
         panelGO.transform.SetParent(canvasGO.transform, false);
         var panelImage = panelGO.AddComponent<Image>();
@@ -78,14 +96,14 @@ public class ExitTrigger : MonoBehaviour
         panelRT.offsetMin = Vector2.zero;
         panelRT.offsetMax = Vector2.zero;
 
+        // Win text
         var textGO = new GameObject("WinText");
         textGO.transform.SetParent(panelGO.transform, false);
         var txt = textGO.AddComponent<Text>();
         txt.text = "YOU WIN";
         txt.alignment = TextAnchor.MiddleCenter;
 
-        // Safe font selection: prefer LegacyRuntime.ttf, fall back to any project font,
-        // then try creating an OS font. This avoids the ArgumentException seen in newer Unity versions.
+        // Safe font selection
         Font font = null;
         try
         {
@@ -117,9 +135,102 @@ public class ExitTrigger : MonoBehaviour
         txt.fontSize = 72;
         txt.color = Color.white;
         var txtRT = txt.rectTransform;
+        txtRT.anchorMin = new Vector2(0.1f, 0.6f);
+        txtRT.anchorMax = new Vector2(0.9f, 0.9f);
+        txtRT.offsetMin = Vector2.zero;
+        txtRT.offsetMax = Vector2.zero;
+
+        // Buttons container
+        var buttonsGO = new GameObject("Buttons");
+        buttonsGO.transform.SetParent(panelGO.transform, false);
+        var buttonsRT = buttonsGO.AddComponent<RectTransform>();
+        buttonsRT.anchorMin = new Vector2(0.3f, 0.1f);
+        buttonsRT.anchorMax = new Vector2(0.7f, 0.4f);
+        buttonsRT.offsetMin = Vector2.zero;
+        buttonsRT.offsetMax = Vector2.zero;
+
+        // Restart button
+        CreateButton(buttonsGO.transform, "Restart", "Restart", () =>
+        {
+            Time.timeScale = 1f;
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        });
+
+        // Quit button
+        CreateButton(buttonsGO.transform, "Quit", "Quit", () =>
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        });
+
+        // Make first button selected
+        var esComp = FindExisting<EventSystem>();
+        if (esComp != null)
+        {
+            var firstButton = buttonsGO.GetComponentInChildren<Button>();
+            if (firstButton != null)
+                esComp.SetSelectedGameObject(firstButton.gameObject);
+        }
+    }
+
+    // Helper to create a simple button under a parent transform
+    void CreateButton(Transform parent, string name, string label, UnityEngine.Events.UnityAction onClick)
+    {
+        var btnGO = new GameObject(name);
+        btnGO.transform.SetParent(parent, false);
+
+        var img = btnGO.AddComponent<Image>();
+        img.color = new Color(1f, 1f, 1f, 0.9f);
+
+        var btn = btnGO.AddComponent<Button>();
+        btn.onClick.AddListener(onClick);
+
+        var rt = btnGO.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 0f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(0, 60);
+
+        // Label
+        var labelGO = new GameObject("Text");
+        labelGO.transform.SetParent(btnGO.transform, false);
+        var txt = labelGO.AddComponent<Text>();
+        txt.text = label;
+        txt.alignment = TextAnchor.MiddleCenter;
+        txt.color = Color.black;
+        txt.fontSize = 28;
+
+        // reuse same font selection approach as above
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+        {
+            var allFonts = Resources.FindObjectsOfTypeAll<Font>();
+            if (allFonts != null && allFonts.Length > 0)
+                font = allFonts[0];
+        }
+        if (font == null)
+        {
+            try { font = Font.CreateDynamicFontFromOSFont("Arial", 16); } catch { font = null; }
+        }
+        if (font != null) txt.font = font;
+
+        var txtRT = txt.rectTransform;
         txtRT.anchorMin = Vector2.zero;
         txtRT.anchorMax = Vector2.one;
         txtRT.offsetMin = Vector2.zero;
         txtRT.offsetMax = Vector2.zero;
+    }
+
+    // Compatibility helper to avoid uses of the deprecated FindObjectOfType<T>() API.
+    static T FindExisting<T>() where T : UnityEngine.Object
+    {
+#if UNITY_2023_2_OR_NEWER
+        return UnityEngine.Object.FindFirstObjectByType<T>();
+#else
+        return UnityEngine.Object.FindObjectOfType<T>();
+#endif
     }
 }

@@ -151,6 +151,7 @@ GameObject:
   - component: {fileID: 7304008373974557423}
   - component: {fileID: 2933993414648516664}
   - component: {fileID: 4090025065587053005}
+  - component: {fileID: 7151859814921511787}
   - component: {fileID: 6901972375168530020}
   m_Layer: 0
   m_Name: Capsule
@@ -230,6 +231,7 @@ MeshRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
+  m_MaskInteraction: 0
   m_AdditionalVertexStreams: {fileID: 0}
 --- !u!143 &7304008373974557423
 CharacterController:
@@ -269,11 +271,14 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
   cameraTransform: {fileID: 3997561412497343287}
+  jumpCountText: {fileID: 0}
   runSpeed: 8
   walkSpeed: 4
   crouchSpeed: 2
   jumpHeight: 1.5
   gravity: -20
+  maxJumps: 5
+  resetJumpsOnGround: 0
   crouchHeight: 1
 --- !u!114 &4090025065587053005
 MonoBehaviour:
@@ -290,6 +295,31 @@ MonoBehaviour:
   mouseSensitivity: 100
   playerBody: {fileID: 1038400636417078600}
   playerCamera: {fileID: 3997561412497343287}
+--- !u!114 &7151859814921511787
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2835600953540699515}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 358965bb242687e47a0104ec9981f183, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WallMarker
+  placeMarkerKey: 20
+  removeLastMarkerKey: 21
+  maxMarkers: 10
+  placeDistance: 3
+  markerOffset: 0.01
+  markerColor: {r: 1, g: 0, b: 0, a: 1}
+  markerSize: 0.3
+  markerSprite: {fileID: -1757233334, guid: 90c0772262d053945a2142c681eac5c9, type: 3}
+  markerCountText: {fileID: 0}
+  cameraTransform: {fileID: 3997561412497343287}
+  wallLayer:
+    serializedVersion: 2
+    m_Bits: 0
 --- !u!82 &6901972375168530020
 AudioSource:
   m_ObjectHideFlags: 0
