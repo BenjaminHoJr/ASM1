@@ -7,6 +7,9 @@ using TMPro;
 /// </summary>
 public class DifficultyMenu : MonoBehaviour
 {
+    // Static variable để các script khác biết game đã bắt đầu chưa
+    public static bool GameStarted { get; private set; } = false;
+    
     [Header("References")]
     [SerializeField] private MazeGenerator mazeGenerator;
     
@@ -21,8 +24,14 @@ public class DifficultyMenu : MonoBehaviour
     
     void Awake()
     {
+        // Reset trạng thái khi scene load
+        GameStarted = false;
+        
         // Xóa Audio Listener thừa
         FixAudioListeners();
+        
+        // Hiện menu ngay trong Awake để đảm bảo các script khác nhận ra
+        ShowDifficultyMenu();
     }
     
     void Start()
@@ -35,9 +44,6 @@ public class DifficultyMenu : MonoBehaviour
         
         // Xóa Camera riêng trong scene (nếu có) - chỉ giữ camera trong Player
         CleanupExtraCameras();
-        
-        // Hiện menu chọn độ khó
-        ShowDifficultyMenu();
     }
     
     /// <summary>
@@ -260,6 +266,7 @@ public class DifficultyMenu : MonoBehaviour
         // Resume game TRƯỚC khi generate
         Time.timeScale = 1f;
         menuShown = false;
+        GameStarted = true; // Đánh dấu game đã bắt đầu
         
         // Lock cursor cho gameplay
         Cursor.lockState = CursorLockMode.Locked;
@@ -277,10 +284,30 @@ public class DifficultyMenu : MonoBehaviour
             mazeGenerator.SetDifficulty(difficulty);
             mazeGenerator.Generate();
             Debug.Log("Bắt đầu game với độ khó: " + difficulty.ToString());
+            
+            // Bắt đầu timeline review mê cung
+            StartMazeReview();
         }
         else
         {
             Debug.LogError("Không tìm thấy MazeGenerator trong scene!");
         }
+    }
+    
+    /// <summary>
+    /// Bắt đầu timeline review mê cung
+    /// </summary>
+    private void StartMazeReview()
+    {
+        // Tìm hoặc tạo TimeLine
+        TimeLine timeLine = FindFirstObjectByType<TimeLine>();
+        if (timeLine == null)
+        {
+            GameObject timeLineObj = new GameObject("TimeLineManager");
+            timeLine = timeLineObj.AddComponent<TimeLine>();
+        }
+        
+        // Bắt đầu review
+        timeLine.StartMazeReview();
     }
 }

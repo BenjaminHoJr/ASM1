@@ -104,63 +104,52 @@ public class PlayerMovement : MonoBehaviour
         standingHeight = controller.height;
         currentSpeed = runSpeed;
         
-        // Tự động tìm hoặc tạo JumpCountText
-        if (jumpCountText == null)
+        // Tự động tạo GameUI nếu chưa có
+        if (GameUI.Instance == null)
         {
-            GameObject textObj = GameObject.Find("JumpCountText");
-            if (textObj != null)
-            {
-                jumpCountText = textObj.GetComponent<TextMeshProUGUI>();
-                // Ẩn text có sẵn cho đến khi game bắt đầu
-                if (jumpCountText != null)
-                {
-                    jumpCanvasObj = jumpCountText.canvas?.gameObject;
-                    if (jumpCanvasObj != null)
-                    {
-                        jumpCanvasObj.SetActive(false);
-                    }
-                }
-            }
-            else
-            {
-                CreateJumpCountUI();
-            }
+            GameObject uiManager = new GameObject("GameUIManager");
+            uiManager.AddComponent<GameUI>();
+            Debug.Log("PlayerMovement: Đã tạo GameUI!");
         }
         
+        // Tự động tạo Mobile Controls nếu chưa có
+        if (MobileControlsManager.Instance == null)
+        {
+            GameObject mobileManager = new GameObject("MobileControlsManager");
+            mobileManager.AddComponent<MobileControlsManager>();
+            Debug.Log("PlayerMovement: Đã tạo MobileControlsManager!");
+        }
+        
+        // Không tạo UI riêng nữa - sử dụng GameUI
         // Không gọi UpdateJumpUI ở đây - chờ game bắt đầu
     }
 
     void UpdateJumpUI()
     {
         int remainingJumps = maxJumps - jumpCount;
-        if (jumpCountText != null)
+        
+        // Cập nhật qua GameUI singleton
+        if (GameUI.Instance != null)
         {
-            jumpCountText.text = "Nhảy: " + remainingJumps + "/" + maxJumps;
+            GameUI.Instance.UpdateJumpCount(remainingJumps, maxJumps);
         }
     }
 
     void Update()
     {
-        // Kiểm tra nếu game đã bắt đầu (DifficultyMenu đã bị destroy)
+        // Kiểm tra nếu game đã bắt đầu (sử dụng biến static từ DifficultyMenu)
         if (!gameStarted)
         {
-            // Kiểm tra xem DifficultyMenuCanvas còn tồn tại không
-            GameObject difficultyMenu = GameObject.Find("DifficultyMenuCanvas");
-            if (difficultyMenu == null)
+            // Kiểm tra xem DifficultyMenu đã đánh dấu game bắt đầu 
+            // VÀ timeline review đã hoàn thành chưa
+            if (DifficultyMenu.GameStarted && !TimeLine.IsReviewing)
             {
-                // Menu đã bị destroy -> game bắt đầu
+                // Game đã bắt đầu và review xong
                 gameStarted = true;
-                
-                // Hiện UI jump count
-                if (jumpCanvasObj != null)
-                {
-                    jumpCanvasObj.SetActive(true);
-                }
-                
                 UpdateJumpUI();
-                Debug.Log("Game bắt đầu - Hiện UI Jump Count!");
+                Debug.Log("PlayerMovement: Game bắt đầu!");
             }
-            return; // Không xử lý input khi chưa bắt đầu game
+            return; // Không xử lý input khi chưa bắt đầu game hoặc đang review
         }
         
         // --- 1. KIỂM TRA MẶT ĐẤT ---
@@ -176,9 +165,21 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // --- 2. LẤY INPUT DI CHUYỂN (A/D, W/S) ---
+        // --- 2. LẤY INPUT DI CHUYỂN (A/D, W/S hoặc Joystick Mobile) ---
         float moveX = Input.GetAxis("Horizontal");
         float moveZ = Input.GetAxis("Vertical");
+        
+        // Thêm input từ mobile joystick
+        if (MobileJoystick.MovementJoystick != null)
+        {
+            Vector2 joystickInput = MobileJoystick.MovementJoystick.InputVector;
+            if (joystickInput.magnitude > 0.1f)
+            {
+                moveX = joystickInput.x;
+                moveZ = joystickInput.y;
+            }
+        }
+        
         Vector3 move = transform.right * moveX + transform.forward * moveZ;
         move = Vector3.ClampMagnitude(move, 1f);
 
@@ -208,8 +209,9 @@ public class PlayerMovement : MonoBehaviour
         // --- 4. ÁP DỤNG DI CHUYỂN NGANG (do Player) ---
         controller.Move(move * currentSpeed * Time.deltaTime);
 
-        // --- 5. XỬ LÝ NHẢY (do Player) ---
-        if (Input.GetButtonDown("Jump"))
+        // --- 5. XỬ LÝ NHẢY (do Player hoặc nút mobile) ---
+        bool jumpInput = Input.GetButtonDown("Jump") || MobileJumpButton.JumpPressed;
+        if (jumpInput)
         {
             if (resetJumpsOnGround)
             {

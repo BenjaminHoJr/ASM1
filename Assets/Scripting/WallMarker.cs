@@ -139,19 +139,8 @@ public class WallMarker : MonoBehaviour
             }
         }
         
-        // Tự động tìm hoặc tạo UI text nếu chưa gán
-        if (markerCountText == null)
-        {
-            GameObject textObj = GameObject.Find("MarkerCountText");
-            if (textObj != null)
-            {
-                markerCountText = textObj.GetComponent<TextMeshProUGUI>();
-            }
-            else
-            {
-                CreateMarkerCountUI();
-            }
-        }
+        // Không tạo UI riêng nữa - sử dụng GameUI
+        // UI sẽ được quản lý bởi GameUI singleton
         
         // Nếu không chỉ định wallLayer, sử dụng tất cả layer
         if (wallLayer == 0)
@@ -164,24 +153,17 @@ public class WallMarker : MonoBehaviour
     
     void Update()
     {
-        // Kiểm tra nếu game đã bắt đầu (DifficultyMenu đã bị destroy)
+        // Kiểm tra nếu game đã bắt đầu (sử dụng biến static từ DifficultyMenu)
         if (!gameStarted)
         {
-            // Kiểm tra xem DifficultyMenuCanvas còn tồn tại không
-            GameObject difficultyMenu = GameObject.Find("DifficultyMenuCanvas");
-            if (difficultyMenu == null)
+            // Kiểm tra xem DifficultyMenu đã đánh dấu game bắt đầu
+            // VÀ timeline review đã hoàn thành chưa
+            if (DifficultyMenu.GameStarted && !TimeLine.IsReviewing)
             {
-                // Menu đã bị destroy -> game bắt đầu
+                // Game đã bắt đầu và review xong
                 gameStarted = true;
-                
-                // Hiện UI marker
-                if (markerCanvasObj != null)
-                {
-                    markerCanvasObj.SetActive(true);
-                }
-                
                 UpdateUI();
-                Debug.Log("Game bắt đầu - Hiện UI Marker!");
+                Debug.Log("WallMarker: Game bắt đầu!");
             }
             return; // Không xử lý input khi chưa bắt đầu game
         }
@@ -202,7 +184,7 @@ public class WallMarker : MonoBehaviour
     /// <summary>
     /// Thử đặt dấu hiệu lên tường
     /// </summary>
-    private void TryPlaceMarker()
+    public void TryPlaceMarker()
     {
         if (markersRemaining <= 0)
         {
@@ -372,16 +354,10 @@ public class WallMarker : MonoBehaviour
     /// </summary>
     private void UpdateUI()
     {
-        string text = "Markers: " + markersRemaining + "/" + maxMarkers;
-        
-        if (markerCountText != null)
+        // Cập nhật qua GameUI singleton
+        if (GameUI.Instance != null)
         {
-            markerCountText.text = text;
-        }
-        
-        if (markerCountTextLegacy != null)
-        {
-            markerCountTextLegacy.text = text;
+            GameUI.Instance.UpdateMarkerCount(markersRemaining, maxMarkers);
         }
     }
     

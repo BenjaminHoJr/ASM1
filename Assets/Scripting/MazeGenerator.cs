@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.VFX;
 
 public class MazeGenerator : MonoBehaviour
 {
@@ -10,12 +11,22 @@ public class MazeGenerator : MonoBehaviour
     [SerializeField] private int width = 15;
     [SerializeField] private int height = 15;
     [SerializeField] private Difficulty difficulty = Difficulty.Normal;
+    
+    // Public properties để các script khác có thể đọc
+    public int Width => width;
+    public int Height => height;
+    public float CellSize => cellSize;
 
     [Header("Prefabs")]
     [SerializeField] private GameObject wallPrefab;   // thin cube
     [SerializeField] private GameObject floorPrefab;  // plane or flat cube
     [SerializeField] private GameObject exitPrefab;   // has ExitTrigger
     [SerializeField] private Transform playerPrefab;  // has CharacterController & PlayerController
+
+    [Header("Exit VFX")]
+    [SerializeField] private VisualEffectAsset exitVFXAsset; // VFX Graph asset cho exit
+    [SerializeField] private float vfxScale = 1f;
+    [SerializeField] private Vector3 vfxOffset = new Vector3(0, 0.5f, 0);
 
     [Header("Dimensions")]
     [SerializeField] private float cellSize = 3f;
@@ -270,6 +281,21 @@ public class MazeGenerator : MonoBehaviour
             Vector3 exitWorld = transform.TransformPoint(exitLocal);
             var exit = Instantiate(exitPrefab, exitWorld, Quaternion.identity, transform);
             exit.name = "Exit";
+
+            // Add VFX to exit
+            if (exitVFXAsset != null)
+            {
+                GameObject vfxObject = new GameObject("ExitVFX");
+                vfxObject.transform.SetParent(exit.transform);
+                vfxObject.transform.localPosition = vfxOffset;
+                vfxObject.transform.localScale = Vector3.one * vfxScale;
+                
+                VisualEffect vfx = vfxObject.AddComponent<VisualEffect>();
+                vfx.visualEffectAsset = exitVFXAsset;
+                
+                // Thêm controller để quản lý VFX
+                ExitVFXController vfxController = exit.AddComponent<ExitVFXController>();
+            }
         }
     }
 

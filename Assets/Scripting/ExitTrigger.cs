@@ -3,6 +3,8 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using TMPro;
+using System.Collections;
 
 [RequireComponent(typeof(Collider))]
 public class ExitTrigger : MonoBehaviour
@@ -16,7 +18,36 @@ public class ExitTrigger : MonoBehaviour
     [Tooltip("If true, timeScale is set to 0 and a basic win UI is created.")]
     public bool pauseAndShowDefaultUI = true;
 
+    [Header("Win UI Settings")]
+    public string winTitle = "🎉 CHIẾN THẮNG! 🎉";
+    public string winSubtitle = "Bạn đã tìm được lối ra!";
+    public Color titleColor = new Color(1f, 0.84f, 0f); // Vàng gold
+    public Color buttonPlayColor = new Color(0.2f, 0.8f, 0.2f); // Xanh lá
+    public Color buttonQuitColor = new Color(0.8f, 0.2f, 0.2f); // Đỏ
+
     bool triggered = false;
+    private GameObject winCanvas;
+    private float gameTime = 0f;
+    private bool isGameRunning = false;
+
+    void Start()
+    {
+        // Bắt đầu đếm thời gian khi game chạy
+        StartCoroutine(TrackGameTime());
+    }
+
+    IEnumerator TrackGameTime()
+    {
+        // Chờ game bắt đầu
+        yield return new WaitUntil(() => DifficultyMenu.GameStarted && !TimeLine.IsReviewing);
+        isGameRunning = true;
+        
+        while (isGameRunning && !triggered)
+        {
+            gameTime += Time.deltaTime;
+            yield return null;
+        }
+    }
 
     void Reset()
     {
@@ -58,10 +89,21 @@ public class ExitTrigger : MonoBehaviour
 
     void ShowDefaultWin()
     {
-        Debug.Log("Player reached exit � YOU WIN");
+        Debug.Log("Player reached exit – YOU WIN!");
+        isGameRunning = false;
 
         // Pause game
         Time.timeScale = 0f;
+        
+        // Unlock cursor
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        // Ẩn GameUI
+        if (GameUI.Instance != null)
+        {
+            GameUI.Instance.gameObject.SetActive(false);
+        }
 
         // Ensure an EventSystem exists so UI can receive input
         if (FindExisting<EventSystem>() == null)
@@ -72,92 +114,145 @@ public class ExitTrigger : MonoBehaviour
             DontDestroyOnLoad(es);
         }
 
-        // Create lightweight UI overlay
-        var canvasGO = new GameObject("WinCanvas");
-        DontDestroyOnLoad(canvasGO);
-        var canvas = canvasGO.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 1000;
+        // Create beautiful UI overlay
+        CreateBeautifulWinUI();
+    }
 
-        var scaler = canvasGO.AddComponent<CanvasScaler>();
+    void CreateBeautifulWinUI()
+    {
+        // Main Canvas
+        winCanvas = new GameObject("WinCanvas");
+        // Không dùng DontDestroyOnLoad để canvas tự động bị xóa khi reload scene
+        var canvas = winCanvas.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 2000;
+
+        var scaler = winCanvas.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 0.5f;
 
-        canvasGO.AddComponent<GraphicRaycaster>();
+        winCanvas.AddComponent<GraphicRaycaster>();
 
-        // Background panel
-        var panelGO = new GameObject("Panel");
-        panelGO.transform.SetParent(canvasGO.transform, false);
+        // Background với gradient effect
+        var bgGO = new GameObject("Background");
+        bgGO.transform.SetParent(winCanvas.transform, false);
+        var bgImage = bgGO.AddComponent<Image>();
+        bgImage.color = new Color(0f, 0f, 0f, 0.85f);
+        SetFullStretch(bgImage.rectTransform);
+
+        // Container chính
+        var containerGO = new GameObject("Container");
+        containerGO.transform.SetParent(winCanvas.transform, false);
+        var containerRT = containerGO.AddComponent<RectTransform>();
+        containerRT.anchorMin = new Vector2(0.15f, 0.1f);
+        containerRT.anchorMax = new Vector2(0.85f, 0.9f);
+        containerRT.offsetMin = Vector2.zero;
+        containerRT.offsetMax = Vector2.zero;
+
+        // Panel chính với viền
+        var panelGO = new GameObject("MainPanel");
+        panelGO.transform.SetParent(containerGO.transform, false);
         var panelImage = panelGO.AddComponent<Image>();
-        panelImage.color = new Color(0f, 0f, 0f, 0.6f);
-        var panelRT = panelImage.rectTransform;
-        panelRT.anchorMin = Vector2.zero;
-        panelRT.anchorMax = Vector2.one;
-        panelRT.offsetMin = Vector2.zero;
-        panelRT.offsetMax = Vector2.zero;
+        panelImage.color = new Color(0.1f, 0.1f, 0.15f, 0.95f);
+        SetFullStretch(panelImage.rectTransform);
 
-        // Win text
-        var textGO = new GameObject("WinText");
-        textGO.transform.SetParent(panelGO.transform, false);
-        var txt = textGO.AddComponent<Text>();
-        txt.text = "YOU WIN";
-        txt.alignment = TextAnchor.MiddleCenter;
+        // Viền panel
+        var borderGO = new GameObject("Border");
+        borderGO.transform.SetParent(panelGO.transform, false);
+        var borderImage = borderGO.AddComponent<Image>();
+        borderImage.color = titleColor;
+        var borderRT = borderImage.rectTransform;
+        SetFullStretch(borderRT);
+        // Tạo outline bằng cách scale nhỏ hơn
+        var innerGO = new GameObject("Inner");
+        innerGO.transform.SetParent(borderGO.transform, false);
+        var innerImage = innerGO.AddComponent<Image>();
+        innerImage.color = new Color(0.1f, 0.1f, 0.15f, 1f);
+        var innerRT = innerImage.rectTransform;
+        innerRT.anchorMin = Vector2.zero;
+        innerRT.anchorMax = Vector2.one;
+        innerRT.offsetMin = new Vector2(4, 4);
+        innerRT.offsetMax = new Vector2(-4, -4);
 
-        // Safe font selection
-        Font font = null;
-        try
-        {
-            font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        }
-        catch { font = null; }
+        // === TITLE ===
+        var titleGO = CreateTMPText(panelGO.transform, "Title", winTitle, 72, titleColor, FontStyles.Bold);
+        var titleRT = titleGO.GetComponent<RectTransform>();
+        titleRT.anchorMin = new Vector2(0.05f, 0.75f);
+        titleRT.anchorMax = new Vector2(0.95f, 0.95f);
+        titleRT.offsetMin = Vector2.zero;
+        titleRT.offsetMax = Vector2.zero;
 
-        if (font == null)
-        {
-            var allFonts = Resources.FindObjectsOfTypeAll<Font>();
-            if (allFonts != null && allFonts.Length > 0)
-                font = allFonts[0];
-        }
+        // === SUBTITLE ===
+        var subtitleGO = CreateTMPText(panelGO.transform, "Subtitle", winSubtitle, 36, Color.white, FontStyles.Normal);
+        var subtitleRT = subtitleGO.GetComponent<RectTransform>();
+        subtitleRT.anchorMin = new Vector2(0.1f, 0.62f);
+        subtitleRT.anchorMax = new Vector2(0.9f, 0.75f);
+        subtitleRT.offsetMin = Vector2.zero;
+        subtitleRT.offsetMax = Vector2.zero;
 
-        if (font == null)
-        {
-            try
-            {
-                font = Font.CreateDynamicFontFromOSFont("Arial", 16);
-            }
-            catch { font = null; }
-        }
+        // === STATS PANEL ===
+        var statsGO = new GameObject("StatsPanel");
+        statsGO.transform.SetParent(panelGO.transform, false);
+        var statsRT = statsGO.AddComponent<RectTransform>();
+        statsRT.anchorMin = new Vector2(0.15f, 0.35f);
+        statsRT.anchorMax = new Vector2(0.85f, 0.6f);
+        statsRT.offsetMin = Vector2.zero;
+        statsRT.offsetMax = Vector2.zero;
 
-        if (font != null)
-            txt.font = font;
-        else
-            Debug.LogWarning("ExitTrigger: No font available for win UI. Install a font asset or assign one manually if needed.");
+        // Thời gian hoàn thành
+        string timeStr = FormatTime(gameTime);
+        var timeGO = CreateTMPText(statsGO.transform, "Time", "⏱️ Thời gian: " + timeStr, 32, Color.cyan, FontStyles.Normal);
+        var timeRT = timeGO.GetComponent<RectTransform>();
+        timeRT.anchorMin = new Vector2(0, 0.5f);
+        timeRT.anchorMax = new Vector2(1, 1f);
+        timeRT.offsetMin = Vector2.zero;
+        timeRT.offsetMax = Vector2.zero;
 
-        txt.fontSize = 72;
-        txt.color = Color.white;
-        var txtRT = txt.rectTransform;
-        txtRT.anchorMin = new Vector2(0.1f, 0.6f);
-        txtRT.anchorMax = new Vector2(0.9f, 0.9f);
-        txtRT.offsetMin = Vector2.zero;
-        txtRT.offsetMax = Vector2.zero;
+        // Số lần nhảy đã dùng (nếu có PlayerMovement)
+        string jumpInfo = GetJumpInfo();
+        var jumpGO = CreateTMPText(statsGO.transform, "Jumps", jumpInfo, 28, new Color(0.8f, 0.8f, 0.8f), FontStyles.Normal);
+        var jumpRT = jumpGO.GetComponent<RectTransform>();
+        jumpRT.anchorMin = new Vector2(0, 0f);
+        jumpRT.anchorMax = new Vector2(1, 0.5f);
+        jumpRT.offsetMin = Vector2.zero;
+        jumpRT.offsetMax = Vector2.zero;
 
-        // Buttons container
+        // === BUTTONS ===
         var buttonsGO = new GameObject("Buttons");
         buttonsGO.transform.SetParent(panelGO.transform, false);
         var buttonsRT = buttonsGO.AddComponent<RectTransform>();
-        buttonsRT.anchorMin = new Vector2(0.3f, 0.1f);
-        buttonsRT.anchorMax = new Vector2(0.7f, 0.4f);
+        buttonsRT.anchorMin = new Vector2(0.1f, 0.08f);
+        buttonsRT.anchorMax = new Vector2(0.9f, 0.28f);
         buttonsRT.offsetMin = Vector2.zero;
         buttonsRT.offsetMax = Vector2.zero;
 
-        // Restart button
-        CreateButton(buttonsGO.transform, "Restart", "Restart", () =>
+        // Horizontal Layout
+        var hlg = buttonsGO.AddComponent<HorizontalLayoutGroup>();
+        hlg.spacing = 40;
+        hlg.childAlignment = TextAnchor.MiddleCenter;
+        hlg.childControlWidth = true;
+        hlg.childControlHeight = true;
+        hlg.childForceExpandWidth = true;
+        hlg.childForceExpandHeight = true;
+        hlg.padding = new RectOffset(20, 20, 10, 10);
+
+        // Nút CHƠI LẠI
+        CreateBeautifulButton(buttonsGO.transform, "PlayAgain", "🔄 CHƠI LẠI", buttonPlayColor, () =>
         {
             Time.timeScale = 1f;
+            // Destroy WinCanvas trước khi reload
+            if (winCanvas != null)
+            {
+                Destroy(winCanvas);
+            }
+            // Reset static variables
+            ResetGameState();
             SceneManager.LoadScene(SceneManager.GetActiveScene().name);
         });
 
-        // Quit button
-        CreateButton(buttonsGO.transform, "Quit", "Quit", () =>
+        // Nút THOÁT
+        CreateBeautifulButton(buttonsGO.transform, "Quit", "🚪 THOÁT", buttonQuitColor, () =>
         {
 #if UNITY_EDITOR
             UnityEditor.EditorApplication.isPlaying = false;
@@ -166,7 +261,7 @@ public class ExitTrigger : MonoBehaviour
 #endif
         });
 
-        // Make first button selected
+        // Chọn nút đầu tiên
         var esComp = FindExisting<EventSystem>();
         if (esComp != null)
         {
@@ -174,54 +269,129 @@ public class ExitTrigger : MonoBehaviour
             if (firstButton != null)
                 esComp.SetSelectedGameObject(firstButton.gameObject);
         }
+
+        // Bắt đầu animation
+        StartCoroutine(AnimateWinUI(panelGO.transform));
     }
 
-    // Helper to create a simple button under a parent transform
-    void CreateButton(Transform parent, string name, string label, UnityEngine.Events.UnityAction onClick)
+    GameObject CreateTMPText(Transform parent, string name, string content, float fontSize, Color color, FontStyles style)
+    {
+        var textGO = new GameObject(name);
+        textGO.transform.SetParent(parent, false);
+        
+        var tmp = textGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = content;
+        tmp.fontSize = fontSize;
+        tmp.fontStyle = style;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = color;
+        tmp.enableWordWrapping = true;
+        
+        // Outline
+        tmp.outlineWidth = 0.15f;
+        tmp.outlineColor = new Color(0, 0, 0, 0.5f);
+        
+        return textGO;
+    }
+
+    void CreateBeautifulButton(Transform parent, string name, string label, Color bgColor, UnityEngine.Events.UnityAction onClick)
     {
         var btnGO = new GameObject(name);
         btnGO.transform.SetParent(parent, false);
 
+        // Background
         var img = btnGO.AddComponent<Image>();
-        img.color = new Color(1f, 1f, 1f, 0.9f);
+        img.color = bgColor;
 
+        // Button component
         var btn = btnGO.AddComponent<Button>();
         btn.onClick.AddListener(onClick);
+        
+        // Button colors
+        var colors = btn.colors;
+        colors.normalColor = bgColor;
+        colors.highlightedColor = bgColor * 1.2f;
+        colors.pressedColor = bgColor * 0.8f;
+        colors.selectedColor = bgColor * 1.1f;
+        btn.colors = colors;
 
-        var rt = btnGO.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0f, 0f);
-        rt.anchorMax = new Vector2(1f, 1f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(0, 60);
+        // Layout element
+        var le = btnGO.AddComponent<LayoutElement>();
+        le.minHeight = 70;
+        le.preferredHeight = 80;
 
-        // Label
-        var labelGO = new GameObject("Text");
+        // Label với TMP
+        var labelGO = new GameObject("Label");
         labelGO.transform.SetParent(btnGO.transform, false);
-        var txt = labelGO.AddComponent<Text>();
-        txt.text = label;
-        txt.alignment = TextAnchor.MiddleCenter;
-        txt.color = Color.black;
-        txt.fontSize = 28;
+        
+        var tmp = labelGO.AddComponent<TextMeshProUGUI>();
+        tmp.text = label;
+        tmp.fontSize = 32;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color = Color.white;
+        tmp.outlineWidth = 0.2f;
+        tmp.outlineColor = new Color(0, 0, 0, 0.7f);
 
-        // reuse same font selection approach as above
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null)
-        {
-            var allFonts = Resources.FindObjectsOfTypeAll<Font>();
-            if (allFonts != null && allFonts.Length > 0)
-                font = allFonts[0];
-        }
-        if (font == null)
-        {
-            try { font = Font.CreateDynamicFontFromOSFont("Arial", 16); } catch { font = null; }
-        }
-        if (font != null) txt.font = font;
+        SetFullStretch(tmp.rectTransform);
+    }
 
-        var txtRT = txt.rectTransform;
-        txtRT.anchorMin = Vector2.zero;
-        txtRT.anchorMax = Vector2.one;
-        txtRT.offsetMin = Vector2.zero;
-        txtRT.offsetMax = Vector2.zero;
+    void SetFullStretch(RectTransform rt)
+    {
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+    }
+
+    string FormatTime(float time)
+    {
+        int minutes = Mathf.FloorToInt(time / 60f);
+        int seconds = Mathf.FloorToInt(time % 60f);
+        int milliseconds = Mathf.FloorToInt((time * 100f) % 100f);
+        return string.Format("{0:00}:{1:00}.{2:00}", minutes, seconds, milliseconds);
+    }
+
+    string GetJumpInfo()
+    {
+        // Tìm PlayerMovement để lấy thông tin nhảy
+        var player = FindExisting<PlayerMovement>();
+        if (player != null)
+        {
+            // Sử dụng reflection hoặc public property nếu có
+            return "🦘 Hoàn thành mê cung!";
+        }
+        return "🏆 Xuất sắc!";
+    }
+
+    void ResetGameState()
+    {
+        // Reset DifficultyMenu state
+        // Điều này sẽ được reset khi scene load lại
+    }
+
+    IEnumerator AnimateWinUI(Transform panel)
+    {
+        // Scale animation (từ nhỏ đến lớn)
+        float duration = 0.5f;
+        float elapsed = 0f;
+        
+        panel.localScale = Vector3.zero;
+        
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = elapsed / duration;
+            // Ease out back
+            float c1 = 1.70158f;
+            float c3 = c1 + 1f;
+            float scale = 1f + c3 * Mathf.Pow(t - 1f, 3f) + c1 * Mathf.Pow(t - 1f, 2f);
+            
+            panel.localScale = Vector3.one * Mathf.Clamp01(scale);
+            yield return null;
+        }
+        
+        panel.localScale = Vector3.one;
     }
 
     // Compatibility helper to avoid uses of the deprecated FindObjectOfType<T>() API.
