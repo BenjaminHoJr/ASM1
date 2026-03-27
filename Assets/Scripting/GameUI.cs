@@ -119,7 +119,7 @@ public class GameUI : MonoBehaviour
         tmp.fontStyle = FontStyles.Bold;
         tmp.alignment = TextAlignmentOptions.Left;
         tmp.color = textColor;
-        tmp.enableWordWrapping = false;
+        tmp.textWrappingMode = TextWrappingModes.NoWrap;
         
         // Thử load font
         TMP_FontAsset font = Resources.Load<TMP_FontAsset>("Fonts & Materials/LiberationSans SDF");

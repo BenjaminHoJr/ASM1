@@ -1,5 +1,7 @@
 ﻿using UnityEngine;
 using TMPro;
+using Fusion;
+using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerMovement : MonoBehaviour
@@ -34,8 +36,12 @@ public class PlayerMovement : MonoBehaviour
     private bool isCrouching = false;
 
     private CharacterController controller;
+    private NetworkObject networkObject;
+    private PlayerInput playerInput;
+    private MobileJoystick movementJoystickCache;
     private Vector3 verticalVelocity;
     private float currentSpeed;
+    private bool localSetupDone;
     
     private bool gameStarted = false; // Game chỉ bắt đầu khi chọn độ khó
     private GameObject jumpCanvasObj; // Canvas chứa UI jump count
@@ -101,8 +107,48 @@ public class PlayerMovement : MonoBehaviour
     void Start()
     {
         controller = GetComponent<CharacterController>();
+        networkObject = GetComponent<NetworkObject>();
+        playerInput = GetComponent<PlayerInput>();
+
+        if (cameraTransform == null)
+        {
+            Camera childCam = GetComponentInChildren<Camera>(true);
+            if (childCam != null)
+            {
+                cameraTransform = childCam.transform;
+            }
+        }
+
         standingHeight = controller.height;
         currentSpeed = runSpeed;
+    }
+
+    private void EnsureLocalSetupIfNeeded()
+    {
+        if (localSetupDone) return;
+        if (!HasControlAuthority())
+        {
+            if (playerInput != null && playerInput.enabled)
+            {
+                playerInput.enabled = false;
+            }
+
+            if (cameraTransform != null)
+            {
+                cameraTransform.gameObject.SetActive(false);
+            }
+            return;
+        }
+
+        if (playerInput != null && !playerInput.enabled)
+        {
+            playerInput.enabled = true;
+        }
+
+        if (cameraTransform != null && !cameraTransform.gameObject.activeSelf)
+        {
+            cameraTransform.gameObject.SetActive(true);
+        }
         
         // Tự động tạo GameUI nếu chưa có
         if (GameUI.Instance == null)
@@ -122,10 +168,13 @@ public class PlayerMovement : MonoBehaviour
         
         // Không tạo UI riêng nữa - sử dụng GameUI
         // Không gọi UpdateJumpUI ở đây - chờ game bắt đầu
+        localSetupDone = true;
     }
 
     void UpdateJumpUI()
     {
+        if (!HasControlAuthority()) return;
+
         int remainingJumps = maxJumps - jumpCount;
         
         // Cập nhật qua GameUI singleton
@@ -137,12 +186,25 @@ public class PlayerMovement : MonoBehaviour
 
     void Update()
     {
+        EnsureLocalSetupIfNeeded();
+
+        if (!HasControlAuthority())
+        {
+            return;
+        }
+
+        // Neu dang pause chu dong thi khoa gameplay.
+        if (IsPausedByController())
+        {
+            return;
+        }
+
         // Kiểm tra nếu game đã bắt đầu (sử dụng biến static từ DifficultyMenu)
         if (!gameStarted)
         {
             // Kiểm tra xem DifficultyMenu đã đánh dấu game bắt đầu 
             // VÀ timeline review đã hoàn thành chưa
-            if (DifficultyMenu.GameStarted && !TimeLine.IsReviewing)
+            if (CanStartGameplayNow())
             {
                 // Game đã bắt đầu và review xong
                 gameStarted = true;
@@ -151,6 +213,15 @@ public class PlayerMovement : MonoBehaviour
             }
             return; // Không xử lý input khi chưa bắt đầu game hoặc đang review
         }
+
+        // Failsafe: tranh bi ket cung khi timeScale = 0 do state lech.
+        if (Time.timeScale <= 0.0001f && !TimeLine.IsReviewing)
+        {
+            Time.timeScale = 1f;
+            AudioListener.pause = false;
+        }
+
+        float dt = Time.deltaTime > 0f ? Time.deltaTime : Time.unscaledDeltaTime;
         
         // --- 1. KIỂM TRA MẶT ĐẤT ---
         bool isGrounded = controller.isGrounded;
@@ -166,14 +237,16 @@ public class PlayerMovement : MonoBehaviour
         }
 
         // --- 2. LẤY INPUT DI CHUYỂN (A/D, W/S hoặc Joystick Mobile) ---
-        float moveX = Input.GetAxis("Horizontal");
-        float moveZ = Input.GetAxis("Vertical");
+        Vector2 moveInput = GetMovementInput();
+        float moveX = moveInput.x;
+        float moveZ = moveInput.y;
         
         // Thêm input từ mobile joystick
-        if (MobileJoystick.MovementJoystick != null)
+        MobileJoystick movementJoystick = GetMovementJoystick();
+        if (movementJoystick != null)
         {
-            Vector2 joystickInput = MobileJoystick.MovementJoystick.InputVector;
-            if (joystickInput.magnitude > 0.1f)
+            Vector2 joystickInput = movementJoystick.InputVector;
+            if (joystickInput.magnitude > 0.02f)
             {
                 moveX = joystickInput.x;
                 moveZ = joystickInput.y;
@@ -206,9 +279,6 @@ public class PlayerMovement : MonoBehaviour
                 currentSpeed = runSpeed;
         }
 
-        // --- 4. ÁP DỤNG DI CHUYỂN NGANG (do Player) ---
-        controller.Move(move * currentSpeed * Time.deltaTime);
-
         // --- 5. XỬ LÝ NHẢY (do Player hoặc nút mobile) ---
         bool jumpInput = Input.GetButtonDown("Jump") || MobileJumpButton.JumpPressed;
         if (jumpInput)
@@ -239,8 +309,136 @@ public class PlayerMovement : MonoBehaviour
             }
         }
 
-        // --- 6. ÁP DỤNG TRỌNG LỰC ---
-        verticalVelocity.y += gravity * Time.deltaTime;
-        controller.Move(verticalVelocity * Time.deltaTime);
+        // --- 6. ÁP DỤNG TRỌNG LỰC + DI CHUYỂN TỔNG HỢP ---
+        verticalVelocity.y += gravity * dt;
+
+        Vector3 totalVelocity = move * currentSpeed;
+        totalVelocity.y = verticalVelocity.y;
+        controller.Move(totalVelocity * dt);
+    }
+
+    private bool CanStartGameplayNow()
+    {
+        // Luong binh thuong.
+        if (DifficultyMenu.GameStarted && !TimeLine.IsReviewing)
+        {
+            return true;
+        }
+
+        // Failsafe cho Shared mode: tranh bi ket vi static GameStarted local chua cap nhat.
+        NetworkRunner runner = FindFirstObjectByType<NetworkRunner>();
+        if (runner != null && runner.IsRunning && HasControlAuthority() && !TimeLine.IsReviewing)
+        {
+            // Neu nguoi choi da co input, cho phep vao game ngay.
+            if (HasAnyGameplayInput())
+            {
+                return true;
+            }
+
+            // Hoac sau mot khoang tre ngan de tranh deadlock khi vao room.
+            if (Time.timeSinceLevelLoad > 1.0f)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool HasAnyGameplayInput()
+    {
+        if (Mathf.Abs(Input.GetAxisRaw("Horizontal")) > 0.01f || Mathf.Abs(Input.GetAxisRaw("Vertical")) > 0.01f)
+        {
+            return true;
+        }
+
+        if (MobileJoystick.MovementJoystick != null && MobileJoystick.MovementJoystick.InputVector.magnitude > 0.1f)
+        {
+            return true;
+        }
+
+        return Input.GetButtonDown("Jump") || MobileJumpButton.JumpPressed;
+    }
+
+    private MobileJoystick GetMovementJoystick()
+    {
+        if (MobileJoystick.MovementJoystick != null)
+        {
+            movementJoystickCache = MobileJoystick.MovementJoystick;
+            return movementJoystickCache;
+        }
+
+        if (movementJoystickCache != null)
+        {
+            return movementJoystickCache;
+        }
+
+        MobileJoystick[] allJoysticks = FindObjectsByType<MobileJoystick>(FindObjectsSortMode.None);
+        for (int i = 0; i < allJoysticks.Length; i++)
+        {
+            if (allJoysticks[i] != null && allJoysticks[i].joystickType == MobileJoystick.JoystickType.Movement)
+            {
+                movementJoystickCache = allJoysticks[i];
+                return movementJoystickCache;
+            }
+        }
+
+        return null;
+    }
+
+    private Vector2 GetMovementInput()
+    {
+        // Legacy Input Manager path.
+        float moveX = Input.GetAxis("Horizontal");
+        float moveZ = Input.GetAxis("Vertical");
+
+        // New Input System keyboard fallback (when GetAxis returns zero).
+        if (Mathf.Abs(moveX) < 0.01f && Mathf.Abs(moveZ) < 0.01f && Keyboard.current != null)
+        {
+            if (Keyboard.current.aKey.isPressed || Keyboard.current.leftArrowKey.isPressed) moveX -= 1f;
+            if (Keyboard.current.dKey.isPressed || Keyboard.current.rightArrowKey.isPressed) moveX += 1f;
+            if (Keyboard.current.sKey.isPressed || Keyboard.current.downArrowKey.isPressed) moveZ -= 1f;
+            if (Keyboard.current.wKey.isPressed || Keyboard.current.upArrowKey.isPressed) moveZ += 1f;
+        }
+
+        return new Vector2(Mathf.Clamp(moveX, -1f, 1f), Mathf.Clamp(moveZ, -1f, 1f));
+    }
+
+    private bool IsPausedByController()
+    {
+        PasueController pauseController = FindFirstObjectByType<PasueController>();
+        return pauseController != null && pauseController.IsPaused();
+    }
+
+    private bool HasControlAuthority()
+    {
+        NetworkRunner runner = FindFirstObjectByType<NetworkRunner>();
+        if (runner == null || !runner.IsRunning)
+        {
+            return true;
+        }
+
+        if (networkObject == null)
+        {
+            return IsLocalInputUser();
+        }
+
+        // Shared mode thuong dieu khien theo StateAuthority, nhung fallback theo PlayerInput local.
+        if (networkObject.HasInputAuthority || networkObject.HasStateAuthority)
+        {
+            return true;
+        }
+
+        return IsLocalInputUser();
+    }
+
+    private bool IsLocalInputUser()
+    {
+        if (playerInput == null)
+        {
+            return Keyboard.current != null;
+        }
+
+        return playerInput.user.valid && playerInput.user.pairedDevices.Count > 0;
     }
 }

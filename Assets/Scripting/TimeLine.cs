@@ -124,6 +124,7 @@ public class TimeLine : MonoBehaviour
         reviewCompleted = false;
         elapsedTime = 0f;
         currentAngle = 0f;
+        float startedAt = Time.realtimeSinceStartup;
         
         Debug.Log("TimeLine: Bắt đầu review mê cung!");
         
@@ -142,6 +143,13 @@ public class TimeLine : MonoBehaviour
         // 4. Chạy review loop
         while (elapsedTime < reviewDuration)
         {
+            // Failsafe: khong de review bi treo vo han khi timeScale/state bi lech.
+            if (Time.realtimeSinceStartup - startedAt > reviewDuration + 5f)
+            {
+                Debug.LogWarning("TimeLine: Review timeout, force end.");
+                break;
+            }
+
             // Kiểm tra skip
             if (Input.GetKeyDown(KeyCode.Space) || Input.GetMouseButtonDown(0))
             {
@@ -159,7 +167,7 @@ public class TimeLine : MonoBehaviour
                 countdownText.text = Mathf.CeilToInt(remaining).ToString();
             }
             
-            elapsedTime += Time.deltaTime;
+            elapsedTime += Time.unscaledDeltaTime;
             yield return null;
         }
         
@@ -179,15 +187,7 @@ public class TimeLine : MonoBehaviour
         reviewCamera.depth = 100; // Hiện trên tất cả
         reviewCamera.fieldOfView = 60f;
         
-        // Thêm AudioListener tạm thời
-        reviewCameraObj.AddComponent<AudioListener>();
-        
-        // Disable AudioListener của player camera
-        if (playerCamera != null)
-        {
-            AudioListener playerListener = playerCamera.GetComponent<AudioListener>();
-            if (playerListener != null) playerListener.enabled = false;
-        }
+        // Khong them AudioListener cho review camera de tranh duplicate listener warnings.
         
         // Đặt vị trí ban đầu
         float startHeight = enableZoom ? zoomStartHeight : cameraHeight;
@@ -283,9 +283,11 @@ public class TimeLine : MonoBehaviour
     private void UpdateReviewCamera()
     {
         if (reviewCamera == null) return;
+
+        float dt = Time.unscaledDeltaTime;
         
         // Xoay camera quanh maze center
-        currentAngle += rotationSpeed * Time.deltaTime;
+        currentAngle += rotationSpeed * dt;
         
         // Tính vị trí mới trên quỹ đạo tròn
         float radius = mazeSize * 0.6f; // Bán kính quỹ đạo
@@ -307,7 +309,7 @@ public class TimeLine : MonoBehaviour
         // Cập nhật vị trí camera
         Vector3 newPos = new Vector3(x, currentHeight, z);
         reviewCamera.transform.position = Vector3.Lerp(
-            reviewCamera.transform.position, newPos, Time.deltaTime * 3f);
+            reviewCamera.transform.position, newPos, dt * 3f);
         
         // Luôn nhìn về phía center của maze
         Vector3 lookTarget = mazeCenter + Vector3.up * 2f;
@@ -351,19 +353,19 @@ public class TimeLine : MonoBehaviour
         float t = 0;
         while (t < flashDuration)
         {
-            t += Time.deltaTime;
+            t += Time.unscaledDeltaTime;
             flash.color = new Color(1, 1, 1, t / flashDuration * 0.8f);
             yield return null;
         }
         
         // Chờ một chút
-        yield return new WaitForSeconds(0.5f);
+        yield return new WaitForSecondsRealtime(0.5f);
         
         // Flash out
         t = flashDuration;
         while (t > 0)
         {
-            t -= Time.deltaTime;
+            t -= Time.unscaledDeltaTime;
             flash.color = new Color(1, 1, 1, t / flashDuration * 0.8f);
             yield return null;
         }
@@ -373,29 +375,81 @@ public class TimeLine : MonoBehaviour
     {
         isReviewing = false;
         reviewCompleted = true;
+
+        // Dam bao game tiep tuc chay neu co script nao de timeScale=0.
+        if (Time.timeScale <= 0.0001f)
+        {
+            Time.timeScale = 1f;
+        }
         
-        // Xóa review camera
-        if (reviewCameraObj != null)
+        // Bat lai camera gameplay truoc khi xoa review camera.
+        Camera activeGameplayCam = EnsureGameplayCamera();
+
+        // Xóa review camera neu da co camera gameplay thay the.
+        if (reviewCameraObj != null && activeGameplayCam != reviewCamera)
         {
             Destroy(reviewCameraObj);
         }
-        
+
         // Xóa UI
         if (uiCanvas != null)
         {
             Destroy(uiCanvas);
         }
         
-        // Bật lại player camera
+        Debug.Log("TimeLine: Kết thúc review - Bắt đầu game!");
+    }
+
+    private Camera EnsureGameplayCamera()
+    {
+        // 1) Camera da duoc tham chieu tren player.
         if (playerCamera != null)
         {
             playerCamera.enabled = true;
-            
-            AudioListener playerListener = playerCamera.GetComponent<AudioListener>();
-            if (playerListener != null) playerListener.enabled = true;
+            return playerCamera;
         }
-        
-        Debug.Log("TimeLine: Kết thúc review - Bắt đầu game!");
+
+        // 2) Tim camera trong PlayerMovement.
+        PlayerMovement pm = FindFirstObjectByType<PlayerMovement>();
+        if (pm != null && pm.cameraTransform != null)
+        {
+            Camera cam = pm.cameraTransform.GetComponent<Camera>();
+            if (cam != null)
+            {
+                playerCamera = cam;
+                playerCamera.enabled = true;
+                return playerCamera;
+            }
+        }
+
+        // 3) Tim camera scene bat ky (ke ca dang disable).
+        Camera[] allCams = Resources.FindObjectsOfTypeAll<Camera>();
+        for (int i = 0; i < allCams.Length; i++)
+        {
+            Camera cam = allCams[i];
+            if (cam == null) continue;
+            if (cam == reviewCamera) continue;
+            if (!cam.gameObject.scene.IsValid()) continue;
+
+            cam.enabled = true;
+            playerCamera = cam;
+            return playerCamera;
+        }
+
+        // 4) Emergency camera de tranh "No cameras rendering".
+        GameObject emergency = new GameObject("EmergencyGameplayCamera");
+        Camera emergencyCam = emergency.AddComponent<Camera>();
+        emergencyCam.clearFlags = CameraClearFlags.Skybox;
+        emergencyCam.depth = 10;
+
+        if (pm != null)
+        {
+            emergency.transform.position = pm.transform.position + new Vector3(0f, 1.5f, -3f);
+            emergency.transform.LookAt(pm.transform.position + Vector3.up * 1.2f);
+        }
+
+        playerCamera = emergencyCam;
+        return playerCamera;
     }
     
     /// <summary>

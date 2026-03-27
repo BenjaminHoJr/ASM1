@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.VFX;
+using UnityEngine.SceneManagement;
+using Fusion;
 
 public class MazeGenerator : MonoBehaviour
 {
@@ -90,6 +92,76 @@ public class MazeGenerator : MonoBehaviour
             ShowInstructions();
         else
             SpawnPlayerAtStart();
+    }
+
+    /// <summary>
+    /// Shared mode: tao seed on dinh theo session de tat ca client sinh cung 1 maze.
+    /// </summary>
+    public void PrepareSharedSeed()
+    {
+        string sessionKey = GetSharedSessionKey();
+        string raw = sessionKey + "|" + difficulty + "|" + width + "x" + height + "|" + SceneManager.GetActiveScene().name;
+        seed = StableHash(raw);
+        if (seed == 0)
+        {
+            seed = 13371337;
+        }
+
+        Debug.Log("MazeGenerator: Shared seed = " + seed + " (" + sessionKey + ")");
+    }
+
+    private string GetSharedSessionKey()
+    {
+        NetworkRunner runner = FindFirstObjectByType<NetworkRunner>();
+        if (runner == null)
+        {
+            return "LOCAL";
+        }
+
+        // Dung reflection de tranh phu thuoc phien ban API Fusion.
+        try
+        {
+            var sessionInfoProp = runner.GetType().GetProperty("SessionInfo");
+            if (sessionInfoProp != null)
+            {
+                object sessionInfo = sessionInfoProp.GetValue(runner, null);
+                if (sessionInfo != null)
+                {
+                    var nameProp = sessionInfo.GetType().GetProperty("Name");
+                    if (nameProp != null)
+                    {
+                        string sessionName = nameProp.GetValue(sessionInfo, null) as string;
+                        if (!string.IsNullOrEmpty(sessionName))
+                        {
+                            return sessionName;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Fallback o duoi.
+        }
+
+        return "FUSION_SESSION";
+    }
+
+    private static int StableHash(string input)
+    {
+        unchecked
+        {
+            const int fnvOffset = (int)2166136261;
+            const int fnvPrime = 16777619;
+
+            int hash = fnvOffset;
+            for (int i = 0; i < input.Length; i++)
+            {
+                hash ^= input[i];
+                hash *= fnvPrime;
+            }
+            return hash;
+        }
     }
 
     /// <summary>
@@ -355,28 +427,42 @@ public class MazeGenerator : MonoBehaviour
     {
         if (playerPrefab == null) return;
 
-        // Xóa Player cũ nếu có
-        GameObject existingPlayer = GameObject.Find("Player");
-        if (existingPlayer != null)
+        NetworkRunner runner = FindFirstObjectByType<NetworkRunner>();
+        bool networkMode = runner != null && runner.IsRunning;
+
+        // Chi cleanup local mode; trong network mode khong duoc tu y xoa network player.
+        if (!networkMode)
         {
-            Debug.Log("MazeGenerator: Xóa Player cũ trước khi spawn mới");
-            DestroyImmediate(existingPlayer);
-        }
-        
-        // Tìm và xóa Player trong DontDestroyOnLoad nếu có
-        PlayerMovement[] allPlayers = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
-        foreach (var p in allPlayers)
-        {
-            Debug.Log("MazeGenerator: Xóa Player cũ: " + p.gameObject.name);
-            DestroyImmediate(p.gameObject);
+            GameObject existingPlayer = GameObject.Find("Player");
+            if (existingPlayer != null)
+            {
+                Debug.Log("MazeGenerator: Xóa Player cũ trước khi spawn mới");
+                DestroyImmediate(existingPlayer);
+            }
+
+            PlayerMovement[] allPlayers = FindObjectsByType<PlayerMovement>(FindObjectsSortMode.None);
+            foreach (var p in allPlayers)
+            {
+                Debug.Log("MazeGenerator: Xóa Player cũ: " + p.gameObject.name);
+                DestroyImmediate(p.gameObject);
+            }
         }
 
-        Vector3 spawnLocal = CellToWorld(startCell.x, startCell.y) + new Vector3(0, 0.25f, 0);
+        Vector3 spawnLocal = GetSafeStartSpawnLocal();
         Vector3 spawnWorld = transform.TransformPoint(spawnLocal);
+        Quaternion spawnRotation = Quaternion.identity;
 
         Debug.Log($"MazeGenerator: spawnLocal={spawnLocal} spawnWorld={spawnWorld}");
 
-        var player = Instantiate(playerPrefab, spawnWorld, Quaternion.Euler(0, 0, 0));
+        // Uu tien spawn qua Prototype Runner de dung luong Fusion.
+        PlayerSpawn playerSpawner = FindFirstObjectByType<PlayerSpawn>();
+        if (playerSpawner != null)
+        {
+            playerSpawner.SpawnAtMazeStart(spawnWorld, spawnRotation, playerPrefab);
+            return;
+        }
+
+        var player = Instantiate(playerPrefab, spawnWorld, spawnRotation);
         player.name = "Player";
 
         // If there is a CharacterController, disable it while we set position to avoid collisions moving it.
@@ -394,6 +480,34 @@ public class MazeGenerator : MonoBehaviour
 
         // Optional: face toward +X (into maze)
         player.rotation = Quaternion.Euler(0, 0, 0);
+    }
+
+    private Vector3 GetSafeStartSpawnLocal()
+    {
+        Vector3 basePos = CellToWorld(startCell.x, startCell.y);
+
+        // Nhan vat cao hon mot chut de tranh ket collider vao san ngay frame dau.
+        Vector3 spawn = basePos + new Vector3(0f, 1.05f, 0f);
+
+        if (grid == null)
+        {
+            return spawn;
+        }
+
+        // Day vao huong passage mo de tranh spawn sat tuong.
+        Vector3[] dirPriority = new Vector3[] { Vector3.right, Vector3.forward, Vector3.left, Vector3.back };
+        int[] wallIndex = new int[] { 1, 0, 3, 2 };
+
+        for (int i = 0; i < wallIndex.Length; i++)
+        {
+            if (!grid[startCell.x, startCell.y].walls[wallIndex[i]])
+            {
+                spawn += dirPriority[i] * (cellSize * 0.28f);
+                break;
+            }
+        }
+
+        return spawn;
     }
 
     // Opens (removes) any wall objects overlapping the entrance area at the cell's side
@@ -428,7 +542,7 @@ public class MazeGenerator : MonoBehaviour
         if (instructionsCanvas != null) return;
 
         // Ensure EventSystem exists
-        if (FindObjectOfType<UnityEngine.EventSystems.EventSystem>() == null)
+        if (FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
         {
             new GameObject("EventSystem", typeof(UnityEngine.EventSystems.EventSystem), typeof(UnityEngine.EventSystems.StandaloneInputModule));
         }

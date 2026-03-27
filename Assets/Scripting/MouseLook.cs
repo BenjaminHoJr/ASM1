@@ -1,4 +1,6 @@
 ﻿using UnityEngine;
+using Fusion;
+using UnityEngine.InputSystem;
 
 public class MouseLook : MonoBehaviour
 {
@@ -14,37 +16,36 @@ public class MouseLook : MonoBehaviour
 
     private float xRotation = 0f; // Biến lưu độ xoay lên/xuống
     private bool useMobileControls = false;
+    private NetworkObject networkObject;
+    private PlayerInput playerInput;
+    private bool localLookSetupDone;
 
     void Start()
     {
-        // Kiểm tra xem có dùng mobile controls không
-        #if UNITY_ANDROID || UNITY_IOS
-        useMobileControls = true;
-        #endif
-        
-        #if UNITY_EDITOR
-        // Trong Editor, kiểm tra MobileControlsManager
-        var mobileManager = FindObjectOfType<MobileControlsManager>();
-        if (mobileManager != null && mobileManager.forceShowInEditor)
+        networkObject = GetComponent<NetworkObject>();
+        playerInput = GetComponent<PlayerInput>();
+
+        if (playerCamera == null)
         {
-            useMobileControls = true;
+            Camera childCam = GetComponentInChildren<Camera>(true);
+            if (childCam != null)
+            {
+                playerCamera = childCam.transform;
+            }
         }
-        #endif
-        
-        // Chỉ khóa chuột khi KHÔNG dùng mobile controls
-        if (!useMobileControls)
+
+        if (playerBody == null)
         {
-            Cursor.lockState = CursorLockMode.Locked;
-        }
-        else
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            playerBody = transform;
         }
     }
 
     void Update()
     {
+        EnsureLocalLookSetupIfNeeded();
+
+        if (!HasControlAuthority()) return;
+
         float lookX = 0f;
         float lookY = 0f;
         
@@ -79,5 +80,92 @@ public class MouseLook : MonoBehaviour
         // 4. Xoay Trái/Phải (cho cả Player Body)
         // Áp dụng xoay Trái/Phải cho CẢ NGƯỜI NHÂN VẬT
         playerBody.Rotate(Vector3.up * lookX);
+    }
+
+    private void EnsureLocalLookSetupIfNeeded()
+    {
+        if (localLookSetupDone) return;
+
+        if (!HasControlAuthority())
+        {
+            if (playerInput != null && playerInput.enabled)
+            {
+                playerInput.enabled = false;
+            }
+
+            if (playerCamera != null)
+            {
+                playerCamera.gameObject.SetActive(false);
+            }
+            return;
+        }
+
+        if (playerInput != null && !playerInput.enabled)
+        {
+            playerInput.enabled = true;
+        }
+
+        if (playerCamera != null && !playerCamera.gameObject.activeSelf)
+        {
+            playerCamera.gameObject.SetActive(true);
+        }
+
+        // Kiểm tra xem có dùng mobile controls không
+        #if UNITY_ANDROID || UNITY_IOS
+        useMobileControls = true;
+        #endif
+        
+        #if UNITY_EDITOR
+        // Trong Editor, kiểm tra MobileControlsManager
+        var mobileManager = FindFirstObjectByType<MobileControlsManager>();
+        if (mobileManager != null && mobileManager.forceShowInEditor)
+        {
+            useMobileControls = true;
+        }
+        #endif
+        
+        // Chỉ khóa chuột khi KHÔNG dùng mobile controls
+        if (!useMobileControls)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
+        localLookSetupDone = true;
+    }
+
+    private bool HasControlAuthority()
+    {
+        NetworkRunner runner = FindFirstObjectByType<NetworkRunner>();
+        if (runner == null || !runner.IsRunning)
+        {
+            return true;
+        }
+
+        if (networkObject == null)
+        {
+            return IsLocalInputUser();
+        }
+
+        if (networkObject.HasInputAuthority || networkObject.HasStateAuthority)
+        {
+            return true;
+        }
+
+        return IsLocalInputUser();
+    }
+
+    private bool IsLocalInputUser()
+    {
+        if (playerInput == null)
+        {
+            return Keyboard.current != null;
+        }
+
+        return playerInput.user.valid && playerInput.user.pairedDevices.Count > 0;
     }
 }

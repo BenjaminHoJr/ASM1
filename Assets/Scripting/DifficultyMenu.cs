@@ -21,14 +21,21 @@ public class DifficultyMenu : MonoBehaviour
     
     private GameObject menuCanvas;
     private bool menuShown = false;
+    private bool isStarting = false;
     
     void Awake()
     {
         // Reset trạng thái khi scene load
         GameStarted = false;
+
+        // Disable camera riêng ngay từ đầu để tránh warning Audio Listener từ frame đầu.
+        CleanupExtraCameras();
         
         // Xóa Audio Listener thừa
         FixAudioListeners();
+
+        // Chạy lại sau 1 nhịp vì một số object/camera có thể được bật ở Start của script khác.
+        Invoke(nameof(FixAudioListeners), 0.1f);
         
         // Hiện menu ngay trong Awake để đảm bảo các script khác nhận ra
         ShowDifficultyMenu();
@@ -80,11 +87,29 @@ public class DifficultyMenu : MonoBehaviour
         
         Debug.Log("Tìm thấy " + listeners.Length + " Audio Listeners. Đang xóa thừa...");
         
-        // Giữ lại listener đầu tiên, xóa các cái khác
-        for (int i = 1; i < listeners.Length; i++)
+        AudioListener keep = null;
+
+        Camera mainCam = Camera.main;
+        if (mainCam != null)
         {
+            keep = mainCam.GetComponent<AudioListener>();
+        }
+
+        if (keep == null)
+        {
+            keep = listeners[0];
+        }
+
+        for (int i = 0; i < listeners.Length; i++)
+        {
+            if (listeners[i] == keep)
+            {
+                listeners[i].enabled = true;
+                continue;
+            }
+
             Debug.Log("Xóa Audio Listener thừa trên: " + listeners[i].gameObject.name);
-            Destroy(listeners[i]);
+            listeners[i].enabled = false;
         }
     }
     
@@ -172,7 +197,7 @@ public class DifficultyMenu : MonoBehaviour
         instructionTMP.fontSize = 24;
         instructionTMP.alignment = TextAlignmentOptions.Center;
         instructionTMP.color = new Color(0.8f, 0.8f, 0.8f);
-        instructionTMP.enableWordWrapping = true;
+        instructionTMP.textWrappingMode = TextWrappingModes.Normal;
         
         RectTransform instrRect = instructionObj.GetComponent<RectTransform>();
         instrRect.anchorMin = new Vector2(0.1f, 0.08f);
@@ -254,6 +279,9 @@ public class DifficultyMenu : MonoBehaviour
     /// </summary>
     public void SelectDifficulty(MazeGenerator.Difficulty difficulty)
     {
+        if (isStarting) return;
+        isStarting = true;
+
         Debug.Log("Đã chọn độ khó: " + difficulty.ToString());
         
         // Ẩn menu trước
@@ -282,6 +310,7 @@ public class DifficultyMenu : MonoBehaviour
         if (mazeGenerator != null)
         {
             mazeGenerator.SetDifficulty(difficulty);
+            mazeGenerator.PrepareSharedSeed();
             mazeGenerator.Generate();
             Debug.Log("Bắt đầu game với độ khó: " + difficulty.ToString());
             
@@ -291,6 +320,7 @@ public class DifficultyMenu : MonoBehaviour
         else
         {
             Debug.LogError("Không tìm thấy MazeGenerator trong scene!");
+            isStarting = false;
         }
     }
     

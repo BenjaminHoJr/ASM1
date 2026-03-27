@@ -4,7 +4,10 @@ using UnityEngine.UI;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using TMPro;
+using System;
 using System.Collections;
+using System.Reflection;
+using Fusion;
 
 [RequireComponent(typeof(Collider))]
 public class ExitTrigger : MonoBehaviour
@@ -241,6 +244,7 @@ public class ExitTrigger : MonoBehaviour
         CreateBeautifulButton(buttonsGO.transform, "PlayAgain", "🔄 CHƠI LẠI", buttonPlayColor, () =>
         {
             Time.timeScale = 1f;
+            AudioListener.pause = false;
             // Destroy WinCanvas trước khi reload
             if (winCanvas != null)
             {
@@ -248,7 +252,7 @@ public class ExitTrigger : MonoBehaviour
             }
             // Reset static variables
             ResetGameState();
-            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+            TryReplayWithFusionOrFallback();
         });
 
         // Nút THOÁT
@@ -285,7 +289,7 @@ public class ExitTrigger : MonoBehaviour
         tmp.fontStyle = style;
         tmp.alignment = TextAlignmentOptions.Center;
         tmp.color = color;
-        tmp.enableWordWrapping = true;
+        tmp.textWrappingMode = TextWrappingModes.Normal;
         
         // Outline
         tmp.outlineWidth = 0.15f;
@@ -370,6 +374,54 @@ public class ExitTrigger : MonoBehaviour
         // Điều này sẽ được reset khi scene load lại
     }
 
+    void TryReplayWithFusionOrFallback()
+    {
+        NetworkRunner runner = FindExisting<NetworkRunner>();
+        if (runner != null && runner.IsRunning && TryFusionLoadScene(runner, SceneManager.GetActiveScene().buildIndex))
+        {
+            return;
+        }
+
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+    }
+
+    bool TryFusionLoadScene(NetworkRunner runner, int buildIndex)
+    {
+        SceneRef sceneRef = SceneRef.FromIndex(buildIndex);
+        MethodInfo[] methods = typeof(NetworkRunner).GetMethods(BindingFlags.Public | BindingFlags.Instance);
+
+        foreach (MethodInfo method in methods)
+        {
+            if (method.Name != "LoadScene") continue;
+
+            ParameterInfo[] parameters = method.GetParameters();
+            try
+            {
+                if (parameters.Length == 1 && parameters[0].ParameterType == typeof(SceneRef))
+                {
+                    method.Invoke(runner, new object[] { sceneRef });
+                    return true;
+                }
+
+                if (parameters.Length == 2 && parameters[0].ParameterType == typeof(SceneRef))
+                {
+                    object secondArg = parameters[1].ParameterType.IsValueType
+                        ? Activator.CreateInstance(parameters[1].ParameterType)
+                        : null;
+
+                    method.Invoke(runner, new object[] { sceneRef, secondArg });
+                    return true;
+                }
+            }
+            catch
+            {
+                // Try next overload.
+            }
+        }
+
+        return false;
+    }
+
     IEnumerator AnimateWinUI(Transform panel)
     {
         // Scale animation (từ nhỏ đến lớn)
@@ -397,10 +449,6 @@ public class ExitTrigger : MonoBehaviour
     // Compatibility helper to avoid uses of the deprecated FindObjectOfType<T>() API.
     static T FindExisting<T>() where T : UnityEngine.Object
     {
-#if UNITY_2023_2_OR_NEWER
         return UnityEngine.Object.FindFirstObjectByType<T>();
-#else
-        return UnityEngine.Object.FindObjectOfType<T>();
-#endif
     }
 }

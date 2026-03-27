@@ -192,7 +192,7 @@ public class MobileControlsManager : MonoBehaviour
         // Thêm component xử lý nhảy
         MobileJumpButton jumpButton = buttonObj.AddComponent<MobileJumpButton>();
         
-        // Thêm text "JUMP"
+        // Thêm text phím tắt "J"
         GameObject textObj = new GameObject("Text");
         textObj.transform.SetParent(buttonObj.transform, false);
         
@@ -204,10 +204,11 @@ public class MobileControlsManager : MonoBehaviour
         
         // Sử dụng Unity UI Text thay vì TMP để đơn giản
         Text text = textObj.AddComponent<Text>();
-        text.text = "JUMP";
+        text.text = "J";
         text.alignment = TextAnchor.MiddleCenter;
-        text.fontSize = 14;
+        text.fontSize = 30;
         text.fontStyle = FontStyle.Bold;
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.color = Color.white;
         text.raycastTarget = false;
         
@@ -227,16 +228,16 @@ public class MobileControlsManager : MonoBehaviour
         buttonRect.anchorMax = new Vector2(1, 0);
         buttonRect.pivot = new Vector2(1, 0);
         
-        // Đặt vị trí: nút đặt marker phía trên nút nhảy, nút xóa marker bên trái nút đặt
+        // Đặt vị trí: F ở bên trái, G ở bên phải (cùng hàng phía trên nút Jump)
         if (isPlaceMarker)
         {
-            // Nút đặt marker (F) - phía trên nút nhảy
-            buttonRect.anchoredPosition = new Vector2(-margin, margin + joystickSize / 2 + 100);
+            // Nút đặt marker (F) - bên trái
+            buttonRect.anchoredPosition = new Vector2(-margin - 100, margin + joystickSize / 2 + 100);
         }
         else
         {
-            // Nút xóa marker (G) - bên trái nút đặt marker
-            buttonRect.anchoredPosition = new Vector2(-margin - 100, margin + joystickSize / 2 + 100);
+            // Nút xóa marker (G) - bên phải nút F
+            buttonRect.anchoredPosition = new Vector2(-margin, margin + joystickSize / 2 + 100);
         }
         buttonRect.sizeDelta = new Vector2(80, 80);
         
@@ -271,6 +272,7 @@ public class MobileControlsManager : MonoBehaviour
         text.alignment = TextAnchor.MiddleCenter;
         text.fontSize = 20;
         text.fontStyle = FontStyle.Bold;
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.color = Color.white;
         text.raycastTarget = false;
         
